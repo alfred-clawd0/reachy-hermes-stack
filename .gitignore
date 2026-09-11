@@ -2,3 +2,4 @@ components/
 .env
 __pycache__/
 *.pyc
+.reachy-api-key
