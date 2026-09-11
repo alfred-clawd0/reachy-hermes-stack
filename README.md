@@ -105,8 +105,8 @@ block in Hermes `config.yaml`. Use **either the environment block or `extra`, no
 When `REACHY_WS_PORT` is in the gateway environment, Hermes' environment seeding overrides
 `extra` host, port, and key-file settings. An inline `api_key` / `REACHY_WS_API_KEY` always beats
 any key file. `allowed_robots` always prefers `REACHY_ALLOWED_ROBOTS` from the environment
-over YAML (falling back to YAML when the environment value is empty). This behavior depends on the pending
-[hermes-reachy auth branch](https://github.com/alfred-clawd0/hermes-reachy/tree/ws-auth-hardening):
+over YAML (falling back to YAML when the environment value is empty). This behavior depends on
+[hermes-reachy auth PR #1](https://github.com/alfred-clawd0/hermes-reachy/pull/1):
 
 ```yaml
 platforms:
@@ -133,7 +133,7 @@ The app loads `.env` by searching upward from its working directory; a component
 takes precedence over the stack file. Its dotenv loader overrides shell values. Edit the `.env`
 that it will actually find. For a fully environment-configured launch, the public fork supports
 `REACHY_MINI_SKIP_DOTENV=1`; supply all required app settings yourself in that case.
-See the [app loader](https://github.com/alfred-clawd0/reachy_mini_conversation_app/blob/local-agent-backend/src/reachy_mini_conversation_app/config.py#L342),
+See the [conversation-app PR #1](https://github.com/alfred-clawd0/reachy_mini_conversation_app/pull/1),
 [Hermes env loader](https://github.com/NousResearch/hermes-agent/blob/main/hermes_cli/env_loader.py),
 and [service generation](https://github.com/NousResearch/hermes-agent/blob/main/hermes_cli/gateway.py)
 for configuration precedence.
@@ -201,8 +201,10 @@ keep the gateway bound to loopback, run `ssh -N -L 8770:127.0.0.1:8770 user@gate
 voice machine, and use the loopback client URL with the copied key.
 
 This requires matching versions of **hermes-reachy** and **reachy_mini_conversation_app** that
-support the authenticated `hello` and the respective key-file variables. Their coordinated auth
-PRs are in flight; use revisions containing both changes before trying full mode.
+support the authenticated `hello` and the respective key-file variables. Use revisions containing
+[hermes-reachy auth PR #1](https://github.com/alfred-clawd0/hermes-reachy/pull/1) and
+[conversation-app PR #1](https://github.com/alfred-clawd0/reachy_mini_conversation_app/pull/1)
+before trying full mode.
 
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the data flow, the WebSocket protocol, and
 what runs where.
