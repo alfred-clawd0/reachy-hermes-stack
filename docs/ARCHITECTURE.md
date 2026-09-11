@@ -36,10 +36,13 @@ The body app opens a persistent WebSocket to the gateway's `reachy` channel (ser
 
 ## WebSocket protocol (full mode)
 
-The body app is the client. Frames are JSON.
+The body app is the client. Frames are JSON. The first frame must be an authenticated `hello`,
+sent within 10 seconds of connection. The gateway rejects missing/invalid authentication with
+WebSocket close code `1008`. This requires the matching
+[hermes-reachy auth version](https://github.com/alfred-clawd0/hermes-reachy/pull/1).
 
 ```
-inbound  (app → gateway):  {"type":"hello","robot_id":"reachy"}
+inbound  (app → gateway):  {"type":"hello","robot_id":"reachy","api_key":"<shared key>"}
                            {"type":"stt","text":"...","turn_id":"t1","robot_id":"reachy"}
                            {"type":"interrupt","text":"...","robot_id":"reachy"}
                            {"type":"tool_result","tool_call_id":"...","result":{...}}
@@ -58,9 +61,9 @@ turn — that is how barge-in maps onto the channel model.
 
 | Component | Repo | Provides |
 |-----------|------|----------|
-| Body app | `reachy_mini_conversation_app` (fork) | mic/STT/TTS/speaker/camera/motion, `local` backend, both transports |
-| Voice runtime | `reachy-hermes-agent` | STT front-end, semantic barge-in, streaming TTS, body/vision policies, neutral runtime primitives |
-| Agent plugin | `hermes-reachy` | the gateway-side `reachy` channel + `reachy_body` tool (full mode) |
+| Body app | [`reachy_mini_conversation_app`](https://github.com/alfred-clawd0/reachy_mini_conversation_app) (fork) | mic/STT/TTS/speaker/camera/motion, `local` backend, both transports |
+| Voice runtime | [`reachy-hermes-agent`](https://github.com/alfred-clawd0/reachy-hermes-agent) | STT front-end, semantic barge-in, streaming TTS, body/vision policies, neutral runtime primitives |
+| Agent plugin | [`hermes-reachy`](https://github.com/alfred-clawd0/hermes-reachy) | the gateway-side `reachy` channel + `reachy_body` tool (full mode) |
 
 ## Safety
 
