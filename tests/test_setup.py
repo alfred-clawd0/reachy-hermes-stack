@@ -202,7 +202,7 @@ class SetupTest(unittest.TestCase):
                 self.assertEqual(key.read_text(), "copied-gateway-key")
 
     def test_missing_remote_key(self):
-        for url in ("ws://gateway:8770/robot/reachy", "ws://127.0.0.1:18770/robot/reachy"):
+        for url in ("ws://gateway:8770/robot/reachy", "ws://gw.lan:8770/robot/reachy"):
             with self.subTest(url=url):
                 key = self.home / "copied" / "gateway-key"
                 self.config.write_text(f"AGENT_PLATFORM_WS_URL={url}\nAGENT_PLATFORM_API_KEY_FILE={key}\n")
@@ -214,7 +214,7 @@ class SetupTest(unittest.TestCase):
                 key.parent.mkdir(exist_ok=True)
                 key.write_text("gateway-key-copy")
                 result = self.run_setup()
-                self.assertEqual("For the gateway machine, not this one" in result.stdout, "gateway:" in url)
+                self.assertIn("For the gateway machine, not this one", result.stdout)
                 self.assertEqual(key.read_text(), "gateway-key-copy")
                 key.unlink()
 
@@ -285,14 +285,44 @@ tempfile.NamedTemporaryFile = FailedWrite
 
     def test_kept_loopback_port_notice(self):
         key = self.stack / ".reachy-api-key"
-        key.write_text("copied-key")
+        self.config.write_text("STACK_REACHY_WS_PORT=9000\n"
+                               "AGENT_PLATFORM_WS_URL=ws://127.0.0.1:18770/robot/reachy\n")
+        result = self.run_setup()
+        self.assertIn("voice URL port 18770 != gateway port 9000 (expected only for an SSH tunnel)", result.stdout)
+        self.assertIn(f"if this is an SSH tunnel to a remote gateway, replace {key} with a copy of the gateway's key",
+                      result.stdout)
+        self.assertNotIn("For the gateway machine, not this one", result.stdout)
+        self.assertEqual(dotenv_values(self.config)["AGENT_PLATFORM_WS_URL"],
+                         "ws://127.0.0.1:18770/robot/reachy")
+        self.assertRegex(key.read_text(), r"^[0-9a-f]{64}\n$")
+        self.assertEqual(stat.S_IMODE(key.stat().st_mode), 0o600)
+
+    def test_template_url_follows_edited_gateway_port(self):
         self.config.write_text("STACK_REACHY_WS_PORT=9000\n"
                                "AGENT_PLATFORM_WS_URL=ws://127.0.0.1:8770/robot/reachy\n")
         result = self.run_setup()
-        self.assertIn("voice URL port 8770 != gateway port 9000 (expected only for an SSH tunnel)", result.stdout)
-        self.assertNotIn("For the gateway machine, not this one", result.stdout)
         self.assertEqual(dotenv_values(self.config)["AGENT_PLATFORM_WS_URL"],
-                         "ws://127.0.0.1:8770/robot/reachy")
+                         "ws://127.0.0.1:9000/robot/reachy")
+        key = self.stack / ".reachy-api-key"
+        self.assertRegex(key.read_text(), r"^[0-9a-f]{64}\n$")
+        self.assertNotIn("copy the gateway's key", result.stderr)
+        self.assertNotIn("voice URL port", result.stdout)
+        before = key.read_bytes(), self.config.read_bytes()
+        self.run_setup()
+        self.assertEqual((key.read_bytes(), self.config.read_bytes()), before)
+
+    def test_other_loopback_hosts_create_local_key(self):
+        for host in ("localhost", "127.0.0.2", "[::1]"):
+            with self.subTest(host=host):
+                key = self.stack / ".reachy-api-key"
+                key.unlink(missing_ok=True)
+                url = f"ws://{host}:18770/robot/reachy"
+                self.config.write_text(f"AGENT_PLATFORM_WS_URL={url}\n")
+                result = self.run_setup()
+                self.assertTrue(key.is_file())
+                self.assertEqual(dotenv_values(self.config)["AGENT_PLATFORM_WS_URL"], url)
+                self.assertIn("if this is an SSH tunnel", result.stdout)
+                self.assertNotIn("For the gateway machine, not this one", result.stdout)
 
     def test_key_path_errors(self):
         for kind in ("empty_remote", "parent_file"):

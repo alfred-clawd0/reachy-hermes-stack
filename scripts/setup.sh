@@ -149,13 +149,26 @@ def configure():
     previous_port = values.get("STACK_REACHY_WS_PORT") or values.get("REACHY_WS_PORT") or "8770"
     previous_robot = values.get("AGENT_PLATFORM_ROBOT_ID") or "reachy"
     loopback = re.fullmatch(r"ws://(?:127\.0\.0\.1|localhost):([0-9]+)/robot/([A-Za-z0-9_.-]+)", url)
-    preserve_url = bool(url) and not (loopback and loopback[1] == previous_port and loopback[2] == previous_robot)
+    preserve_url = bool(url) and not (loopback and loopback[1] in {previous_port, "8770"} and loopback[2] == previous_robot)
     if preserve_url:
         print("Preserved custom AGENT_PLATFORM_WS_URL; edit the voice machine's .env to change it.")
-        if loopback and loopback[1] != port:
-            print(f"voice URL port {loopback[1]} != gateway port {port} (expected only for an SSH tunnel)")
     else:
         url = f"ws://127.0.0.1:{port}/robot/{robot}"
+
+    try:
+        parsed_url = urlsplit(url)
+        voice_host = parsed_url.hostname
+        voice_port = parsed_url.port
+        if not voice_host:
+            raise ValueError("missing hostname")
+    except ValueError:
+        raise SystemExit("Invalid AGENT_PLATFORM_WS_URL: expected a hostname and valid port.")
+    try:
+        local_url = ipaddress.ip_address(voice_host).is_loopback
+    except ValueError:
+        local_url = voice_host.lower() == "localhost"
+    remote_url = not local_url
+    tunnel_warning = preserve_url and local_url and voice_port is not None and voice_port != int(port)
 
     raw_path = (os.environ.get("REACHY_SHARED_API_KEY_FILE")
                 or values.get("AGENT_PLATFORM_API_KEY_FILE")
@@ -175,17 +188,20 @@ def configure():
     validate_path(raw_path)
     key_path = resolve_key_path(raw_path)
     validate_path(str(key_path))
+    if tunnel_warning:
+        print(f"voice URL port {voice_port} != gateway port {port} (expected only for an SSH tunnel)")
+        print(f"if this is an SSH tunnel to a remote gateway, replace {key_path} with a copy of the gateway's key")
     try:
         for parent in key_path.parents:
             if parent.exists() and not parent.is_dir():
                 raise OSError(f"Shared key path parent is a regular file: {parent}")
-        if preserve_url and not key_path.is_file():
+        if remote_url and not key_path.is_file():
             raise SystemExit(f"AGENT_PLATFORM_WS_URL is custom/remote; copy the gateway's key file to {key_path} (mode 600) and rerun")
         if key_path.exists():
             if not key_path.is_file():
                 raise OSError("Shared key path must be a regular file, not a directory or special file.")
             if not key_path.read_text().strip():
-                if preserve_url:
+                if remote_url:
                     raise SystemExit("Shared key file is empty; re-copy the gateway's key and rerun.")
                 raise SystemExit("Shared key file is empty; remove it and run setup again.")
     except PermissionError:
@@ -272,7 +288,7 @@ def configure():
     print(f"Configured {env_file}; shared key file: {key_path} (mode 600).")
     print("Full Hermes mode ONLY: paste these lines into ~/.hermes/.env (or your HERMES_HOME/.env).")
     print("Replace stale entries and remove inline REACHY_WS_API_KEY there; setup does not edit that file.")
-    if preserve_url and urlsplit(url).hostname not in {"127.0.0.1", "localhost", "::1"}:
+    if remote_url:
         print("For the gateway machine, not this one: use its local key-file path when applying this block.")
     print("--- gateway settings ---")
     for name, value in {"REACHY_WS_PORT": port, "REACHY_WS_HOST": host,

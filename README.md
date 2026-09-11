@@ -171,12 +171,16 @@ robot ID is absent from the allowlist.
 
 Setup generates `ws://127.0.0.1:<port>/robot/<id>` for an absent/empty URL. It updates an existing
 `ws://127.0.0.1:<port>/robot/<id>` or `ws://localhost:<port>/robot/<id>` URL only when its port
-matches the stored `STACK_REACHY_WS_PORT` (legacy `REACHY_WS_PORT`, or `8770` if neither is
-stored) and its ID matches the stored `AGENT_PLATFORM_ROBOT_ID` (default `reachy`), before any
+matches the stored `STACK_REACHY_WS_PORT` (or legacy `REACHY_WS_PORT`) **or the template
+default `8770`**, and its ID matches the stored `AGENT_PLATFORM_ROBOT_ID` (default `reachy`), before any
 environment overrides. For example, `REACHY_WS_PORT=9880 ./scripts/setup.sh --config-only`
-updates a matching URL and records the new port. A tunnel URL using a different local port,
+updates a matching URL and records the new port. Copying the template and changing only
+`STACK_REACHY_WS_PORT` to `9000` also updates the template URL from `8770` to `9000`.
+A tunnel URL using another non-matching local port,
 such as `18770`, is preserved with a notice, as are other custom URLs. A kept loopback URL with
-a different port prints a mismatch warning: this is expected only for an SSH tunnel.
+a different port prints a mismatch warning: this is expected only for an SSH tunnel. Loopback
+URLs still allow setup to generate a missing local key. If this is a tunnel to a remote gateway,
+replace that local key with a copy of the gateway's key before connecting.
 `AGENT_TRANSPORT=http` is preserved on reruns.
 `./scripts/setup.sh --config-only` skips cloning and installing. `REACHY_STACK_DIR=/temporary/stack`
 relocates generated configuration, the default key, **and `components/` in a normal run**.
@@ -186,8 +190,8 @@ in the gateway's own config (use `STACK_REACHY_WS_HOST=0.0.0.0` to generate that
 a securely transferred copy of the key on the voice machine (mode `600`). Edit the voice
 machine's `.env`: set `AGENT_PLATFORM_API_KEY_FILE` to the local copy's absolute path and
 `AGENT_PLATFORM_WS_URL=ws://<gateway-host>:8770/robot/reachy`. Setup preserves that remote URL
-and key path on reruns. When a custom URL is preserved, setup requires the copied key to exist;
-it exits with copy instructions rather than generating a mismatched local key. For a genuinely remote
+and key path on reruns. Only a URL with a non-loopback host requires the copied key to exist;
+setup exits with copy instructions rather than generating a mismatched local key. For a genuinely remote
 URL, the printed gateway block is labeled for the gateway machine; use its local key path there.
 **`ws://` is plaintext on the LAN**, including the key. Prefer an SSH tunnel:
 keep the gateway bound to loopback, run `ssh -N -L 8770:127.0.0.1:8770 user@gateway-host` on the
