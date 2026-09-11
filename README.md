@@ -8,13 +8,16 @@ This is the umbrella / quickstart that wires three open components into one runn
 nothing itself — it clones, installs, and configures the parts, so you can rebuild the whole setup in
 a few commands.
 
+This stack is a fork of [ai-ag2026/reachy-hermes-stack](https://github.com/ai-ag2026/reachy-hermes-stack).
+Original MIT licensing and author credit are retained.
+
 ## Components
 
 | Repo | Role |
 |------|------|
-| [`reachy_mini_conversation_app`](https://github.com/ai-ag2026/reachy_mini_conversation_app) (fork, branch `local-agent-backend`) | **Body app** — runs on/near the robot: mic, VAD, STT, TTS, speaker, camera, motion. |
-| [`reachy-hermes-agent`](https://github.com/ai-ag2026/reachy-hermes-agent) | **Brain-side runtime** — the voice pipeline / body policies the body app uses (`pip install reachy-hermes-agent`). |
-| [`hermes-reachy`](https://github.com/ai-ag2026/hermes-reachy) | **Agent plugin** — gives the Hermes gateway a `reachy` channel + `reachy_body` tool (full mode only). |
+| [`reachy_mini_conversation_app`](https://github.com/alfred-clawd0/reachy_mini_conversation_app) (fork, branch `local-agent-backend`) | **Body app** — runs on/near the robot: mic, VAD, STT, TTS, speaker, camera, motion. |
+| [`reachy-hermes-agent`](https://github.com/alfred-clawd0/reachy-hermes-agent) | **Brain-side runtime** — the voice pipeline / body policies the body app uses (`pip install reachy-hermes-agent`). |
+| [`hermes-reachy`](https://github.com/alfred-clawd0/hermes-reachy) | **Agent plugin** — gives the Hermes gateway a `reachy` channel + `reachy_body` tool (full mode only). |
 
 You also bring **STT**, **TTS**, and a **brain** (any OpenAI-compatible endpoints). Nothing here ships
 real endpoints — everything is `.env`-driven with `127.0.0.1` placeholders.
@@ -47,7 +50,7 @@ tools, and drive the body.
 ## Quickstart
 
 ```bash
-git clone https://github.com/ai-ag2026/reachy-hermes-stack
+git clone https://github.com/alfred-clawd0/reachy-hermes-stack
 cd reachy-hermes-stack
 ./scripts/setup.sh          # clones + installs components, configures .env and shared key
 # Edit .env: point STT/TTS/brain at your endpoints. Keep the generated key-file paths.
@@ -69,7 +72,7 @@ Edit the stack `.env` to set `AGENT_TRANSPORT=platform`, then install the plugin
 Python environment used by your Hermes gateway:
 
 ```bash
-pip install "hermes-reachy @ git+https://github.com/ai-ag2026/hermes-reachy"
+pip install "hermes-reachy @ git+https://github.com/alfred-clawd0/hermes-reachy"
 ./scripts/setup.sh --config-only
 ```
 
@@ -103,7 +106,7 @@ When `REACHY_WS_PORT` is in the gateway environment, Hermes' environment seeding
 `extra` host, port, and key-file settings. An inline `api_key` / `REACHY_WS_API_KEY` always beats
 any key file. `allowed_robots` always prefers `REACHY_ALLOWED_ROBOTS` from the environment
 over YAML (falling back to YAML when the environment value is empty). This behavior depends on the pending
-[hermes-reachy auth version (PR #1)](https://github.com/ai-ag2026/hermes-reachy/pull/1):
+[hermes-reachy auth branch](https://github.com/alfred-clawd0/hermes-reachy/tree/ws-auth-hardening):
 
 ```yaml
 platforms:
@@ -130,7 +133,7 @@ The app loads `.env` by searching upward from its working directory; a component
 takes precedence over the stack file. Its dotenv loader overrides shell values. Edit the `.env`
 that it will actually find. For a fully environment-configured launch, the public fork supports
 `REACHY_MINI_SKIP_DOTENV=1`; supply all required app settings yourself in that case.
-See the [app loader](https://github.com/ai-ag2026/reachy_mini_conversation_app/blob/local-agent-backend/src/reachy_mini_conversation_app/config.py#L342),
+See the [app loader](https://github.com/alfred-clawd0/reachy_mini_conversation_app/blob/local-agent-backend/src/reachy_mini_conversation_app/config.py#L342),
 [Hermes env loader](https://github.com/NousResearch/hermes-agent/blob/main/hermes_cli/env_loader.py),
 and [service generation](https://github.com/NousResearch/hermes-agent/blob/main/hermes_cli/gateway.py)
 for configuration precedence.

@@ -2,9 +2,9 @@
 
 This is the umbrella / quickstart. Most changes belong in the component repos:
 
-- Body app behavior → [`reachy_mini_conversation_app`](https://github.com/ai-ag2026/reachy_mini_conversation_app)
-- Voice pipeline / runtime → [`reachy-hermes-agent`](https://github.com/ai-ag2026/reachy-hermes-agent)
-- Gateway channel / body tool → [`hermes-reachy`](https://github.com/ai-ag2026/hermes-reachy)
+- Body app behavior → [`reachy_mini_conversation_app`](https://github.com/alfred-clawd0/reachy_mini_conversation_app)
+- Voice pipeline / runtime → [`reachy-hermes-agent`](https://github.com/alfred-clawd0/reachy-hermes-agent)
+- Gateway channel / body tool → [`hermes-reachy`](https://github.com/alfred-clawd0/hermes-reachy)
 
 Open changes here for: the quickstart, `setup.sh`, the consolidated `.env.example`, the architecture
 docs, or a new deployment recipe. Keep it honest — don't add a one-command path that doesn't actually

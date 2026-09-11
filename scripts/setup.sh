@@ -13,7 +13,7 @@ case "${1:-}" in
   *) echo "Usage: $0 [--config-only]" >&2; exit 2 ;;
 esac
 COMPONENTS="$ROOT/components"
-ORG="https://github.com/ai-ag2026"
+ORG="https://github.com/alfred-clawd0"
 
 FORK="reachy_mini_conversation_app"
 FORK_BRANCH="local-agent-backend"
