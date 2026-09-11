@@ -94,9 +94,15 @@ Choose one of these gateway launch paths:
   Hermes loads its own `~/.hermes/.env` with precedence over the shell, so remove or align stale
   `REACHY_WS_*` entries there first, including any inline key. Source only the generated gateway
   assignment block; general dotenv files may contain unquoted spaces that are not shell syntax.
+  Pasting the block into `~/.hermes/.env` also works for foreground runs, since Hermes loads it
+  anyway; in that case, you can run `hermes gateway run` without sourcing a separate file.
 
 As an alternative, the matching adapter accepts the settings in the Reachy platform's `extra`
-block in Hermes `config.yaml` (these take precedence over the corresponding environment settings):
+block in Hermes `config.yaml`. Use **either the environment block or `extra`, not both**.
+When `REACHY_WS_PORT` is in the gateway environment, Hermes' environment seeding overrides
+`extra` host, port, and key-file settings. An inline `api_key` / `REACHY_WS_API_KEY` always beats
+any key file; only `allowed_robots` prefers YAML. This behavior depends on the pending
+[hermes-reachy auth version (PR #1)](https://github.com/ai-ag2026/hermes-reachy/pull/1):
 
 ```yaml
 platforms:
@@ -141,22 +147,33 @@ component-local `.env`. Choose another key location with
 key files outside Git). Relative paths resolve against the stack directory; spaces are supported,
 but quotes, backslashes, dollar signs, backticks, and newlines are rejected. Setup warns before
 tightening an existing key's permissions and reports permission failures without a traceback.
-Subsequent runs reuse the path recorded in `.env`. To rotate, delete that key file, re-run setup,
-redistribute any remote copies, and restart **the gateway SERVICE** (`hermes gateway restart`)
-**and the voice app**. For a foreground gateway, stop and relaunch `hermes gateway run`.
+Subsequent runs reuse the path recorded in `.env`. To rotate, delete the gateway's key file and
+re-run setup on the gateway machine. Copy the new key to voice machines before rerunning setup
+there. Restart **the gateway SERVICE** (`hermes gateway restart`) **and the voice app**. For a foreground gateway, stop and relaunch `hermes gateway run`.
 
 The stack stores gateway defaults under `STACK_REACHY_WS_HOST=127.0.0.1`,
 `STACK_REACHY_WS_PORT=8770`, and `STACK_REACHY_ALLOWED_ROBOTS=reachy`. These names do not enable
 the plugin when an HTTP-mode user loads the stack `.env`. Setup migrates old gateway `REACHY_*`
-assignments to these names / the printed block, preserving their values and reporting removals.
+assignments to these names / the printed block. Environment overrides win, followed by stack-local
+names, then legacy names. For key paths, `REACHY_SHARED_API_KEY_FILE` wins, then
+`AGENT_PLATFORM_API_KEY_FILE`, then legacy `REACHY_WS_API_KEY_FILE`. Setup reports conflicts and
+which setting won; conflicting paths and ports are shown, never key contents. The stack `.env`
+no longer configures the gateway; apply the printed block on the gateway machine.
 The corresponding `REACHY_WS_HOST`, `REACHY_WS_PORT`, and `REACHY_ALLOWED_ROBOTS` environment
 overrides are also accepted by setup, as is `AGENT_PLATFORM_ROBOT_ID` (default `reachy`).
-Ports must be integers from 1 through 65535; robot IDs allow letters, digits, underscores, dots,
-and hyphens. Setup warns if the client robot ID is absent from the allowlist.
+Ports must be integers from 1 through 65535 without leading zeros. Robot IDs allow letters,
+digits, underscores, dots, and hyphens; allowlists contain these IDs separated by commas without
+whitespace. Hosts allow `[A-Za-z0-9_.:-]+` or a bracketed IPv6 literal. Setup warns if the client
+robot ID is absent from the allowlist.
 
-Setup generates `ws://127.0.0.1:<port>/robot/<id>` only for an absent/empty URL or an existing URL
-that exactly matches `ws://127.0.0.1:<port>/robot/<id>` or `ws://localhost:<port>/robot/<id>`.
-It preserves other URLs with a notice. `AGENT_TRANSPORT=http` is preserved on reruns.
+Setup generates `ws://127.0.0.1:<port>/robot/<id>` for an absent/empty URL. It updates an existing
+`ws://127.0.0.1:<port>/robot/<id>` or `ws://localhost:<port>/robot/<id>` URL only when its port
+matches the stored `STACK_REACHY_WS_PORT` (legacy `REACHY_WS_PORT`, or `8770` if neither is
+stored) and its ID matches the stored `AGENT_PLATFORM_ROBOT_ID` (default `reachy`), before any
+environment overrides. For example, `REACHY_WS_PORT=9880 ./scripts/setup.sh --config-only`
+updates a matching URL and records the new port. A tunnel URL using a different local port,
+such as `18770`, is preserved with a notice, as are other custom URLs.
+`AGENT_TRANSPORT=http` is preserved on reruns.
 `./scripts/setup.sh --config-only` skips cloning and installing. `REACHY_STACK_DIR=/temporary/stack`
 relocates generated configuration, the default key, **and `components/` in a normal run**.
 
@@ -165,7 +182,10 @@ in the gateway's own config (use `STACK_REACHY_WS_HOST=0.0.0.0` to generate that
 a securely transferred copy of the key on the voice machine (mode `600`). Edit the voice
 machine's `.env`: set `AGENT_PLATFORM_API_KEY_FILE` to the local copy's absolute path and
 `AGENT_PLATFORM_WS_URL=ws://<gateway-host>:8770/robot/reachy`. Setup preserves that remote URL
-and key path on reruns. **`ws://` is plaintext on the LAN**, including the key. Prefer an SSH tunnel:
+and key path on reruns. When a custom URL is preserved, setup requires the copied key to exist;
+it exits with copy instructions rather than generating a mismatched local key. Its printed gateway
+block is labeled for the gateway machine; use the gateway's own local key path there.
+**`ws://` is plaintext on the LAN**, including the key. Prefer an SSH tunnel:
 keep the gateway bound to loopback, run `ssh -N -L 8770:127.0.0.1:8770 user@gateway-host` on the
 voice machine, and use the loopback client URL with the copied key.
 

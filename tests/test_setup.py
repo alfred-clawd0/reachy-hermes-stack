@@ -36,8 +36,7 @@ class SetupTest(unittest.TestCase):
         return result
 
     def test_configuration_scenarios(self):
-        old = subprocess.check_output(["git", "show", "9f4bc57:.env.example"],
-                                      cwd=SETUP.parents[1], text=True)
+        old = (Path(__file__).parent / "fixtures/env.example.9f4bc57").read_text()
         scenarios = {
             "default": TEMPLATE.read_text(),
             "custom_key": "AGENT_TRANSPORT=http\nREACHY_WS_HOST=0.0.0.0\n",
@@ -45,7 +44,7 @@ class SetupTest(unittest.TestCase):
             "remote_fragment": "AGENT_TRANSPORT=http\nAGENT_PLATFORM_WS_URL=wss://gateway.example/voice#fragment\n",
             "old_template_remote": old + "\nAGENT_PLATFORM_WS_URL=ws://gateway:8770/robot/reachy\n"
                                    "REACHY_WS_HOST=0.0.0.0\nREACHY_WS_PORT=9880\n",
-            "localhost": "AGENT_PLATFORM_WS_URL=ws://localhost:1234/robot/old\n",
+            "localhost": "AGENT_PLATFORM_WS_URL=ws://localhost:8770/robot/reachy\n",
         }
         for scenario, initial in scenarios.items():
             with self.subTest(scenario=scenario):
@@ -58,6 +57,8 @@ class SetupTest(unittest.TestCase):
                     key.write_text("existing-key\n")
                     key.chmod(0o644)
                     self.env.update(REACHY_SHARED_API_KEY_FILE=str(key), REACHY_WS_PORT="9880")
+                if "remote" in scenario:
+                    key.write_text("a" * 64 + "\n")  # Copy supplied by the gateway, never generated locally.
                 self.config.write_text(initial + "\nAGENT_PLATFORM_API_KEY=stale-secret\n"
                                        "REACHY_WS_API_KEY=stale-secret\n"
                                        "UNRELATED=unquoted spaces\n")
@@ -107,9 +108,13 @@ class SetupTest(unittest.TestCase):
     def test_invalid_inputs(self):
         cases = [("REACHY_SHARED_API_KEY_FILE", str(self.home / ("bad" + char)), "shared key path")
                  for char in ("'", '"', "\\", "$", "`", "\n")]
-        cases += [("REACHY_WS_PORT", port, "PORT") for port in ("0", "65536", "abc", "1.5")]
+        cases += [("REACHY_WS_PORT", port, "PORT") for port in ("0", "65536", "abc", "1.5", "08770")]
         cases += [("AGENT_PLATFORM_ROBOT_ID", robot, "AGENT_PLATFORM_ROBOT_ID")
                   for robot in ("with space", "a/b", "bad?", "\n")]
+        cases += [("REACHY_WS_HOST", host, "HOST")
+                  for host in ("bad'host", "bad\nhost", "[not-ipv6]", "bad host")]
+        cases += [("STACK_REACHY_ALLOWED_ROBOTS", ids, "ALLOWED_ROBOTS")
+                  for ids in ("reachy\nother", "reachy,", "reachy, bad", "reachy,bad/id")]
         for name, value, error in cases:
             with self.subTest(name=name, value=repr(value)):
                 self.config.write_text("AGENT_TRANSPORT=http\n")
@@ -155,6 +160,119 @@ class SetupTest(unittest.TestCase):
         self.assertTrue(self.config.is_symlink())
         self.assertEqual(stat.S_IMODE(target.stat().st_mode), 0o600)
         self.assertIn("AGENT_PLATFORM_API_KEY_FILE", dotenv_values(target))
+
+    def test_migration_conflicts(self):
+        key = self.home / "copied key"
+        key.write_text("never-print-this-key")
+        cases = [
+            (f"REACHY_WS_API_KEY_FILE={self.home / 'old-key'}\nAGENT_PLATFORM_API_KEY_FILE='{key}'\n",
+             [str(self.home / "old-key"), str(key), "AGENT_PLATFORM_API_KEY_FILE", "won"]),
+            ("STACK_REACHY_WS_PORT=8770\nREACHY_WS_PORT=9880\n",
+             ["REACHY_WS_PORT='9880' discarded", "STACK_REACHY_WS_PORT (stack .env)='8770' won"]),
+            ("STACK_REACHY_WS_HOST=127.0.0.1\nREACHY_WS_HOST=0.0.0.0\n",
+             ["REACHY_WS_HOST discarded", "STACK_REACHY_WS_HOST (stack .env) won"]),
+        ]
+        for initial, messages in cases:
+            with self.subTest(initial=initial):
+                self.config.write_text(initial)
+                result = self.run_setup()
+                for message in messages:
+                    self.assertIn(message, result.stdout)
+                self.assertIn("moved to the gateway block below; the stack .env no longer configures the gateway",
+                              result.stdout)
+                self.assertNotIn("never-print-this-key", result.stdout + result.stderr)
+
+    def test_loopback_url_ownership(self):
+        key = self.stack / ".reachy-api-key"
+        key.write_text("copied-gateway-key")
+        for local_port, robot, regenerate in (("18770", "reachy", False), ("8770", "other", False),
+                                             ("8770", "reachy", True)):
+            with self.subTest(port=local_port, robot=robot):
+                url = f"ws://127.0.0.1:{local_port}/robot/{robot}"
+                self.config.write_text(f"STACK_REACHY_WS_PORT=8770\nAGENT_PLATFORM_ROBOT_ID=reachy\n"
+                                       f"AGENT_PLATFORM_WS_URL={url}\n")
+                self.env["REACHY_WS_PORT"] = "9880"
+                first = self.run_setup()
+                expected = "ws://127.0.0.1:9880/robot/reachy" if regenerate else url
+                self.assertEqual(dotenv_values(self.config)["AGENT_PLATFORM_WS_URL"], expected)
+                self.assertEqual("Preserved custom AGENT_PLATFORM_WS_URL" in first.stdout, not regenerate)
+                self.env.pop("REACHY_WS_PORT")
+                self.run_setup()
+                self.assertEqual(dotenv_values(self.config)["AGENT_PLATFORM_WS_URL"], expected)
+                self.assertEqual(key.read_text(), "copied-gateway-key")
+
+    def test_missing_remote_key(self):
+        for url in ("ws://gateway:8770/robot/reachy", "ws://127.0.0.1:18770/robot/reachy"):
+            with self.subTest(url=url):
+                key = self.home / "copied" / "gateway-key"
+                self.config.write_text(f"AGENT_PLATFORM_WS_URL={url}\nAGENT_PLATFORM_API_KEY_FILE={key}\n")
+                initial = self.config.read_bytes()
+                result = self.run_setup(success=False)
+                self.assertIn(f"copy the gateway's key file to {key} (mode 600) and rerun", result.stderr)
+                self.assertFalse(key.exists())
+                self.assertEqual(self.config.read_bytes(), initial)
+                key.parent.mkdir(exist_ok=True)
+                key.write_text("gateway-key-copy")
+                result = self.run_setup()
+                self.assertIn("For the gateway machine, not this one", result.stdout)
+                self.assertEqual(key.read_text(), "gateway-key-copy")
+                key.unlink()
+
+    def test_valid_hosts(self):
+        for host in ("robot.local", "::1", "[::1]"):
+            with self.subTest(host=host):
+                self.config.write_text("AGENT_TRANSPORT=http\n")
+                self.env.update(REACHY_WS_HOST=host, STACK_REACHY_ALLOWED_ROBOTS="reachy,robot-2")
+                result = self.run_setup()
+                data = dotenv_values(self.config)
+                gateway = dotenv_values(stream=io.StringIO(result.stdout.split(
+                    "--- gateway settings ---\n")[1].split("--- end gateway settings ---")[0]))
+                self.assertEqual(data["STACK_REACHY_WS_HOST"], host)
+                self.assertEqual(gateway["REACHY_WS_HOST"], host)
+                self.assertEqual(data["STACK_REACHY_ALLOWED_ROBOTS"], "reachy,robot-2")
+
+    def test_invalid_filesystem_targets(self):
+        for kind in ("dangling_env", "key_directory"):
+            with self.subTest(kind=kind):
+                if kind == "dangling_env":
+                    self.config.symlink_to(self.home / "missing-parent" / "target.env")
+                    result = self.run_setup(success=False)
+                    self.assertIn("Dangling .env symlink", result.stderr)
+                    self.assertTrue(self.config.is_symlink())
+                    self.config.unlink()
+                else:
+                    key = self.stack / ".reachy-api-key"
+                    key.mkdir()
+                    mode = key.stat().st_mode
+                    result = self.run_setup(success=False)
+                    self.assertIn("Shared key path must be a regular file", result.stderr)
+                    self.assertEqual(key.stat().st_mode, mode)
+                self.assertFalse(self.config.exists())
+
+    def test_atomic_write_failure_cleanup(self):
+        self.config.write_text("AGENT_TRANSPORT=http\n")
+        program = SETUP.read_text().split("<<'PY_CONFIG'\n")[1].split("\nPY_CONFIG")[0]
+        injection = """import tempfile
+original = tempfile.NamedTemporaryFile
+class FailedWrite:
+    def __init__(self, *args, **kwargs):
+        self.file = original(*args, **kwargs)
+        self.name = self.file.name
+    def __enter__(self):
+        return self
+    def __exit__(self, *args):
+        self.file.close()
+    def write(self, value):
+        raise OSError('simulated disk full')
+tempfile.NamedTemporaryFile = FailedWrite
+"""
+        result = subprocess.run([sys.executable, "-c", injection + program, str(self.stack), str(TEMPLATE)],
+                                env=self.env, cwd=self.home, capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Cannot configure Reachy stack: simulated disk full", result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+        self.assertEqual(self.config.read_text(), "AGENT_TRANSPORT=http\n")
+        self.assertEqual({path.name for path in self.stack.iterdir()}, {".env", ".reachy-api-key"})
 
     def test_key_permission_error(self):
         # Run the actual embedded program with only the filesystem permission failure injected.

@@ -11,3 +11,21 @@ docs, or a new deployment recipe. Keep it honest — don't add a one-command pat
 run end to end. No hardcoded hosts, ports, ids, or secrets: everything stays `.env`-driven.
 
 Small, reviewable PRs with conventional commit subjects (`feat:`, `fix:`, `docs:`).
+
+## Tests
+
+Use a virtual environment, then run from the repository root:
+
+```bash
+python3 -m venv /tmp/reachy-stack-tests-venv
+source /tmp/reachy-stack-tests-venv/bin/activate
+python -m pip install python-dotenv
+python -m unittest discover -s tests -p 'test_setup.py' -v
+bash -n scripts/setup.sh
+shellcheck scripts/*.sh
+git diff --check
+```
+
+Tests run only the configuration phase with temporary HOME, stack, key, and configuration paths.
+They do not install components or access a real Hermes home. The legacy-template fixture is
+checked in, so the suite also works in shallow clones and source archives.

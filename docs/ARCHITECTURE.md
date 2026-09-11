@@ -36,10 +36,12 @@ The body app opens a persistent WebSocket to the gateway's `reachy` channel (ser
 
 ## WebSocket protocol (full mode)
 
-The body app is the client. Frames are JSON.
+The body app is the client. Frames are JSON. The first frame must be an authenticated `hello`,
+sent within 10 seconds of connection. The gateway rejects missing/invalid authentication with
+WebSocket close code `1008`. This requires the matching hermes-reachy auth version (PR #1).
 
 ```
-inbound  (app → gateway):  {"type":"hello","robot_id":"reachy"}
+inbound  (app → gateway):  {"type":"hello","robot_id":"reachy","api_key":"<shared key>"}
                            {"type":"stt","text":"...","turn_id":"t1","robot_id":"reachy"}
                            {"type":"interrupt","text":"...","robot_id":"reachy"}
                            {"type":"tool_result","tool_call_id":"...","result":{...}}
