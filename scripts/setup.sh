@@ -67,11 +67,11 @@ import shlex
 import stat
 import sys
 import tempfile
+from urllib.parse import urlsplit
 
 def configure():
     os.umask(0o077)
     root = Path(sys.argv[1]).expanduser().resolve()
-    root.mkdir(parents=True, exist_ok=True)
     env_link = root / ".env"
     if env_link.is_symlink() and not env_link.exists():
         raise OSError("Dangling .env symlink; create its target or repair the link before rerunning setup.")
@@ -120,13 +120,18 @@ def configure():
 
 
     host = setting("REACHY_WS_HOST", "127.0.0.1")
-    if host.startswith("[") and host.endswith("]"):
-        try:
-            ipaddress.IPv6Address(host[1:-1])
-        except ValueError:
-            raise SystemExit("Invalid REACHY_WS_HOST / STACK_REACHY_WS_HOST: invalid bracketed IPv6 literal.")
-    elif not re.fullmatch(r"[A-Za-z0-9_.:-]+", host):
-        raise SystemExit("Invalid REACHY_WS_HOST / STACK_REACHY_WS_HOST: expected hostname, address, or bracketed IPv6.")
+    bracketed = host.startswith("[") and host.endswith("]")
+    if bracketed:
+        host = host[1:-1]
+    try:
+        address = ipaddress.ip_address(host)
+        if bracketed and address.version != 6:
+            raise ValueError("Brackets require IPv6")
+        host = str(address)
+    except ValueError:
+        label = r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
+        if bracketed or len(host) > 253 or not re.fullmatch(rf"{label}(?:\.{label})*\.?", host):
+            raise SystemExit("Invalid REACHY_WS_HOST / STACK_REACHY_WS_HOST: expected IP address or RFC 1123 hostname.")
     port = setting("REACHY_WS_PORT", "8770")
     if not re.fullmatch(r"[1-9][0-9]{0,4}", port) or not 1 <= int(port) <= 65535:
         raise SystemExit("Invalid REACHY_WS_PORT / STACK_REACHY_WS_PORT: expected integer 1-65535 without leading zeros.")
@@ -147,6 +152,8 @@ def configure():
     preserve_url = bool(url) and not (loopback and loopback[1] == previous_port and loopback[2] == previous_robot)
     if preserve_url:
         print("Preserved custom AGENT_PLATFORM_WS_URL; edit the voice machine's .env to change it.")
+        if loopback and loopback[1] != port:
+            print(f"voice URL port {loopback[1]} != gateway port {port} (expected only for an SSH tunnel)")
     else:
         url = f"ws://127.0.0.1:{port}/robot/{robot}"
 
@@ -161,30 +168,28 @@ def configure():
                              "and newline are not supported; spaces are allowed.")
 
 
+    def resolve_key_path(value):
+        path = Path(value).expanduser()
+        return (path if path.is_absolute() else root / path).resolve()
+
     validate_path(raw_path)
-    key_path = Path(raw_path).expanduser()
-    if not key_path.is_absolute():
-        key_path = root / key_path
-    key_path = key_path.resolve()
+    key_path = resolve_key_path(raw_path)
     validate_path(str(key_path))
     try:
+        for parent in key_path.parents:
+            if parent.exists() and not parent.is_dir():
+                raise OSError(f"Shared key path parent is a regular file: {parent}")
         if preserve_url and not key_path.is_file():
-            raise SystemExit(f"copy the gateway's key file to {key_path} (mode 600) and rerun")
-        if key_path.exists() and not key_path.is_file():
-            raise OSError("Shared key path must be a regular file, not a directory or special file.")
-        key_path.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            with key_path.open("x") as key_file:
-                key_file.write(secrets.token_hex(32) + "\n")
-        except FileExistsError:
-            if stat.S_IMODE(key_path.stat().st_mode) != 0o600:
-                print(f"Warning: tightening existing key file permissions to 600: {key_path}", flush=True)
-        key_path.chmod(0o600)
-        if not key_path.read_text().strip():
-            raise SystemExit("Shared key file is empty; remove it and run setup again.")
+            raise SystemExit(f"AGENT_PLATFORM_WS_URL is custom/remote; copy the gateway's key file to {key_path} (mode 600) and rerun")
+        if key_path.exists():
+            if not key_path.is_file():
+                raise OSError("Shared key path must be a regular file, not a directory or special file.")
+            if not key_path.read_text().strip():
+                if preserve_url:
+                    raise SystemExit("Shared key file is empty; re-copy the gateway's key and rerun.")
+                raise SystemExit("Shared key file is empty; remove it and run setup again.")
     except PermissionError:
-        raise SystemExit("Permission denied accessing or securing shared key file; "
-                         "use a file owned by your user or ask its owner to fix permissions.")
+        raise SystemExit("Permission denied accessing shared key file; use a readable file owned by your user.")
 
     updates = {
         "AGENT_PLATFORM_API_KEY_FILE": str(key_path),
@@ -206,7 +211,8 @@ def configure():
             else:
                 kept = str(key_path) if name == "REACHY_WS_API_KEY_FILE" else updates[migrations[name]]
                 old = line_values[line]
-                if old != kept:
+                comparable = str(resolve_key_path(old)) if name == "REACHY_WS_API_KEY_FILE" and old else old
+                if comparable != kept:
                     if name == "REACHY_WS_API_KEY_FILE":
                         winner = ("REACHY_SHARED_API_KEY_FILE (environment)" if os.environ.get("REACHY_SHARED_API_KEY_FILE")
                                   else "AGENT_PLATFORM_API_KEY_FILE" if values.get("AGENT_PLATFORM_API_KEY_FILE")
@@ -232,19 +238,41 @@ def configure():
     output.extend(f"{name}={shlex.quote(value)}" for name, value in remaining.items())
     # Replace the resolved target atomically, preserving a .env symlink if present.
     temp_path = None
+    created_key = False
+    committed = False
     try:
+        root.mkdir(parents=True, exist_ok=True)
         with tempfile.NamedTemporaryFile(mode="w", dir=env_file.parent, delete=False) as config:
             temp_path = Path(config.name)
             config.write("\n".join(output) + "\n")
         temp_path.chmod(0o600)
+        # Prepare the entire config before creating or changing the shared key.
+        try:
+            key_path.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                with key_path.open("x") as key_file:
+                    created_key = True
+                    key_file.write(secrets.token_hex(32) + "\n")
+            except FileExistsError:
+                if stat.S_IMODE(key_path.stat().st_mode) != 0o600:
+                    print(f"Warning: tightening existing key file permissions to 600: {key_path}", flush=True)
+            key_path.chmod(0o600)
+        except PermissionError:
+            raise SystemExit("Permission denied accessing or securing shared key file; "
+                             "use a file owned by your user or ask its owner to fix permissions.")
         os.replace(temp_path, env_file)
+        committed = True
+    except PermissionError:
+        raise SystemExit(f"Cannot write stack configuration at {env_file}; check directory ownership and permissions.")
     finally:
+        if created_key and not committed:
+            key_path.unlink(missing_ok=True)
         if temp_path is not None:
             temp_path.unlink(missing_ok=True)
     print(f"Configured {env_file}; shared key file: {key_path} (mode 600).")
     print("Full Hermes mode ONLY: paste these lines into ~/.hermes/.env (or your HERMES_HOME/.env).")
     print("Replace stale entries and remove inline REACHY_WS_API_KEY there; setup does not edit that file.")
-    if preserve_url:
+    if preserve_url and urlsplit(url).hostname not in {"127.0.0.1", "localhost", "::1"}:
         print("For the gateway machine, not this one: use its local key-file path when applying this block.")
     print("--- gateway settings ---")
     for name, value in {"REACHY_WS_PORT": port, "REACHY_WS_HOST": host,

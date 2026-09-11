@@ -14,6 +14,7 @@ Small, reviewable PRs with conventional commit subjects (`feat:`, `fix:`, `docs:
 
 ## Tests
 
+Install ShellCheck first (for example, `brew install shellcheck` on macOS).
 Use a virtual environment, then run from the repository root:
 
 ```bash

@@ -101,7 +101,8 @@ As an alternative, the matching adapter accepts the settings in the Reachy platf
 block in Hermes `config.yaml`. Use **either the environment block or `extra`, not both**.
 When `REACHY_WS_PORT` is in the gateway environment, Hermes' environment seeding overrides
 `extra` host, port, and key-file settings. An inline `api_key` / `REACHY_WS_API_KEY` always beats
-any key file; only `allowed_robots` prefers YAML. This behavior depends on the pending
+any key file. `allowed_robots` always prefers `REACHY_ALLOWED_ROBOTS` from the environment
+over YAML (falling back to YAML when the environment value is empty). This behavior depends on the pending
 [hermes-reachy auth version (PR #1)](https://github.com/ai-ag2026/hermes-reachy/pull/1):
 
 ```yaml
@@ -149,7 +150,8 @@ but quotes, backslashes, dollar signs, backticks, and newlines are rejected. Set
 tightening an existing key's permissions and reports permission failures without a traceback.
 Subsequent runs reuse the path recorded in `.env`. To rotate, delete the gateway's key file and
 re-run setup on the gateway machine. Copy the new key to voice machines before rerunning setup
-there. Restart **the gateway SERVICE** (`hermes gateway restart`) **and the voice app**. For a foreground gateway, stop and relaunch `hermes gateway run`.
+there. Restart **the gateway SERVICE** (`hermes gateway restart`) **and the voice app**.
+For a foreground gateway, stop and relaunch `hermes gateway run`.
 
 The stack stores gateway defaults under `STACK_REACHY_WS_HOST=127.0.0.1`,
 `STACK_REACHY_WS_PORT=8770`, and `STACK_REACHY_ALLOWED_ROBOTS=reachy`. These names do not enable
@@ -163,7 +165,8 @@ The corresponding `REACHY_WS_HOST`, `REACHY_WS_PORT`, and `REACHY_ALLOWED_ROBOTS
 overrides are also accepted by setup, as is `AGENT_PLATFORM_ROBOT_ID` (default `reachy`).
 Ports must be integers from 1 through 65535 without leading zeros. Robot IDs allow letters,
 digits, underscores, dots, and hyphens; allowlists contain these IDs separated by commas without
-whitespace. Hosts allow `[A-Za-z0-9_.:-]+` or a bracketed IPv6 literal. Setup warns if the client
+whitespace. Hosts must be IP addresses or RFC 1123 hostnames. Brackets around IPv6 addresses
+are stripped before storing and printing the bind host (for example, `[::1]` becomes `::1`). Setup warns if the client
 robot ID is absent from the allowlist.
 
 Setup generates `ws://127.0.0.1:<port>/robot/<id>` for an absent/empty URL. It updates an existing
@@ -172,7 +175,8 @@ matches the stored `STACK_REACHY_WS_PORT` (legacy `REACHY_WS_PORT`, or `8770` if
 stored) and its ID matches the stored `AGENT_PLATFORM_ROBOT_ID` (default `reachy`), before any
 environment overrides. For example, `REACHY_WS_PORT=9880 ./scripts/setup.sh --config-only`
 updates a matching URL and records the new port. A tunnel URL using a different local port,
-such as `18770`, is preserved with a notice, as are other custom URLs.
+such as `18770`, is preserved with a notice, as are other custom URLs. A kept loopback URL with
+a different port prints a mismatch warning: this is expected only for an SSH tunnel.
 `AGENT_TRANSPORT=http` is preserved on reruns.
 `./scripts/setup.sh --config-only` skips cloning and installing. `REACHY_STACK_DIR=/temporary/stack`
 relocates generated configuration, the default key, **and `components/` in a normal run**.
@@ -183,8 +187,8 @@ a securely transferred copy of the key on the voice machine (mode `600`). Edit t
 machine's `.env`: set `AGENT_PLATFORM_API_KEY_FILE` to the local copy's absolute path and
 `AGENT_PLATFORM_WS_URL=ws://<gateway-host>:8770/robot/reachy`. Setup preserves that remote URL
 and key path on reruns. When a custom URL is preserved, setup requires the copied key to exist;
-it exits with copy instructions rather than generating a mismatched local key. Its printed gateway
-block is labeled for the gateway machine; use the gateway's own local key path there.
+it exits with copy instructions rather than generating a mismatched local key. For a genuinely remote
+URL, the printed gateway block is labeled for the gateway machine; use its local key path there.
 **`ws://` is plaintext on the LAN**, including the key. Prefer an SSH tunnel:
 keep the gateway bound to loopback, run `ssh -N -L 8770:127.0.0.1:8770 user@gateway-host` on the
 voice machine, and use the loopback client URL with the copied key.
